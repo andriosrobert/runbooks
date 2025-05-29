@@ -5,8 +5,6 @@ FILTER_VALUE='{{ .filterValue | description "Enter attribute value" }}'
 FILTER_TYPE='{{ .filterType | type "select" | description "Type" | options "String" "Number" "Binary" "Boolean" "Null" | default "String" }}'
 FILTER_CONDITION='{{ .filterCondition | type "select" | description "Condition" | options "Equal_to" "Not_equal_to" "Less_than_or_equal_to" "Less_than" "Greater_than_or_equal_to" "Greater_than" "Between" "Exists" "Not_exists" "Contains" "Not_contains" "Begins_with" | default "Equal_to" }}'
 FILTER_ATTRIBUTE='{{ .filterAttribute | description "Attribute name" }}'
-
-# -------- Select a table or index --------
 TABLE_NAME='{{ .tableName | type "select" | description "Select a table or index" | options "Table - Employee" | default "Table - Employee" }}'
 
 # -------- Build and Run Command --------
