@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TABLE_NAME='{{ .tableName | type "select" | description "Select a table or index" | options "default Employee Customers"" }}'
+TABLE_NAME='{{ .tableName | type "select" | description "Select a table or index" | options "default Employee Customers" }}'
 
 # -------- Filters - optional --------
 FILTER_VALUE='{{ .filterValue | description "Enter attribute value" }}'
