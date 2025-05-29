@@ -3,7 +3,7 @@
 # -------- Filters - optional --------
 FILTER_VALUE='{{ .filterValue | description "Enter attribute value" }}'
 FILTER_TYPE='{{ .filterType | type "select" | description "Type" | options "String" "Number" "Binary" "Boolean" "Null" | default "String" }}'
-FILTER_CONDITION='{{ .filterCondition | type "select" | description "Condition" | options "Equal to" "Not equal to" "Less than or equal to" "Less than" "Greater than or equal to" "Greater than" "Between" "Exists" "Not exists" "Contains" "Not contains" "Begins with" | default "Equal to" }}'
+FILTER_CONDITION='{{ .filterCondition | type "select" | description "Condition" | options "Equal_to" "Not_equal_to" "Less_than_or_equal_to" "Less_than" "Greater_than_or_equal_to" "Greater_than" "Between" "Exists" "Not_exists" "Contains" "Not_contains" "Begins_with" | default "Equal_to" }}'
 FILTER_ATTRIBUTE='{{ .filterAttribute | description "Attribute name" }}'
 
 # -------- Select a table or index --------
@@ -39,32 +39,32 @@ if [ -n "$FILTER_ATTRIBUTE" ] && [ -n "$FILTER_VALUE" ]; then
     esac
     
     case "$FILTER_CONDITION" in
-        "Equal to")
+        "Equal_to")
             CMD+=" --filter-expression \"#attr = :val\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             CMD+=" --expression-attribute-values '{\":val\": $ATTR_VALUE}'"
             ;;
-        "Not equal to")
+        "Not_equal_to")
             CMD+=" --filter-expression \"#attr <> :val\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             CMD+=" --expression-attribute-values '{\":val\": $ATTR_VALUE}'"
             ;;
-        "Less than")
+        "Less_than")
             CMD+=" --filter-expression \"#attr < :val\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             CMD+=" --expression-attribute-values '{\":val\": $ATTR_VALUE}'"
             ;;
-        "Less than or equal to")
+        "Less_than_or_equal_to")
             CMD+=" --filter-expression \"#attr <= :val\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             CMD+=" --expression-attribute-values '{\":val\": $ATTR_VALUE}'"
             ;;
-        "Greater than")
+        "Greater_than")
             CMD+=" --filter-expression \"#attr > :val\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             CMD+=" --expression-attribute-values '{\":val\": $ATTR_VALUE}'"
             ;;
-        "Greater than or equal to")
+        "Greater_than_or_equal_to")
             CMD+=" --filter-expression \"#attr >= :val\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             CMD+=" --expression-attribute-values '{\":val\": $ATTR_VALUE}'"
@@ -79,7 +79,7 @@ if [ -n "$FILTER_ATTRIBUTE" ] && [ -n "$FILTER_VALUE" ]; then
             CMD+=" --filter-expression \"attribute_exists(#attr)\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             ;;
-        "Not exists")
+        "Not_exists")
             CMD+=" --filter-expression \"attribute_not_exists(#attr)\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             ;;
@@ -88,12 +88,12 @@ if [ -n "$FILTER_ATTRIBUTE" ] && [ -n "$FILTER_VALUE" ]; then
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             CMD+=" --expression-attribute-values '{\":val\": $ATTR_VALUE}'"
             ;;
-        "Not contains")
+        "Not_contains")
             CMD+=" --filter-expression \"NOT contains(#attr, :val)\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             CMD+=" --expression-attribute-values '{\":val\": $ATTR_VALUE}'"
             ;;
-        "Begins with")
+        "Begins_with")
             CMD+=" --filter-expression \"begins_with(#attr, :val)\""
             CMD+=" --expression-attribute-names '{\"#attr\": \"$FILTER_ATTRIBUTE\"}'"
             CMD+=" --expression-attribute-values '{\":val\": $ATTR_VALUE}'"
