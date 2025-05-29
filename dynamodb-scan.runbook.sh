@@ -1,13 +1,13 @@
 #!/bin/bash
 
+# -------- Filters - optional --------
+FILTER_VALUE='{{ .filterValue | description "Enter attribute value" }}'
+FILTER_TYPE='{{ .filterType | type "select" | description "Type" | options "String" "Number" "Binary" "Boolean" "Null" | default "String" }}'
+FILTER_CONDITION='{{ .filterCondition | type "select" | description "Condition" | options "Equal to" "Not equal to" "Less than or equal to" "Less than" "Greater than or equal to" "Greater than" "Between" "Exists" "Not exists" "Contains" "Not contains" "Begins with" | default "Equal to" }}'
+FILTER_ATTRIBUTE='{{ .filterAttribute | description "Attribute name" }}'
+
 # -------- Select a table or index --------
 TABLE_NAME='{{ .tableName | type "select" | description "Select a table or index" | options "Table - Employee" | default "Table - Employee" }}'
-
-# -------- Filters - optional --------
-FILTER_ATTRIBUTE='{{ .filterAttribute | description "Attribute name" }}'
-FILTER_CONDITION='{{ .filterCondition | type "select" | description "Condition" | options "Equal to" "Not equal to" "Less than or equal to" "Less than" "Greater than or equal to" "Greater than" "Between" "Exists" "Not exists" "Contains" "Not contains" "Begins with" | default "Equal to" }}'
-FILTER_TYPE='{{ .filterType | type "select" | description "Type" | options "String" "Number" "Binary" "Boolean" "Null" | default "String" }}'
-FILTER_VALUE='{{ .filterValue | description "Enter attribute value" }}'
 
 # -------- Build and Run Command --------
 CMD="aws dynamodb scan --table-name Employee"
