@@ -1,36 +1,21 @@
-#!/usr/bin/env python3
-"""
-CloudWatch Logs – Relative Window Fetcher
-Author  : Andrios @ hoopdev
-Purpose : Pull events from a log group for a preset relative window
-          (5 m … 4 w), matching the AWS-console buttons – and print them
-          in a console-like, columnar format.
-Requires: boto3, AWS creds with logs:FilterLogEvents
-Optional : colorama  (for faint/bright colourisation)
-"""
-
-import boto3
-import time
-import datetime as dt
-import os
-import re
-import sys
-import json
-from textwrap import shorten
-from datetime import timezone
+#!/bin/bash
+# CloudWatch Logs – Relative Window Fetcher (Bash Version)
+# Author  : Andrios @ hoopdev
+# Purpose : Pull events from a log group for a preset relative window
+#           (5 m … 4 w), matching the AWS-console buttons
+# Requires: aws-cli, jq
 
 # ───────── UI parameters (no free-text numbers) ─────────
-log_group_name = '''
-{{ .logGroupName | type "select"
-                 | description "Choose CloudWatch log group"
-                 | options "/aws/containerinsights/hoop-prod/application"
-                           "/aws/containerinsights/hoop-prod/dataplane"
-                           "/aws/eks/hoop-prod/cluster"
-                           "/aws/lambda/logdna_cloudwatch"
-                           "/aws/rds/instance/hoopdb/postgresql" }}
-'''.strip()
+# Read log group from environment variable
+log_group_name="${LOG_GROUP_NAME}"
 
-relative_window = '''
+if [ -z "$log_group_name" ]; then
+    echo "❌ Error: LOG_GROUP_NAME environment variable is not set"
+    echo "Usage: LOG_GROUP_NAME='/aws/containerinsights/hoop-prod/application' $0"
+    exit 1
+fi
+
+relative_window='
 {{ .relativeWindow | type "select"
                   | description "Time window duration"
                   | options "5m" "10m" "15m" "30m" "45m"
@@ -38,163 +23,218 @@ relative_window = '''
                             "1d" "2d" "3d" "4d" "5d" "6d"
                             "1w" "2w" "3w" "4w"
                   | default "5m" }}
-'''.strip()
+'
+relative_window=$(echo "$relative_window" | xargs)
 
-# Optional specific date filters
-specific_month = '''
+specific_month='
 {{ .specificMonth | type "select"
-                  | description "Month (optional - leave as 'current' for relative mode)"
+                  | description "Month (optional - leave as current for relative mode)"
                   | options "current" "January" "February" "March" "April" "May" "June"
                             "July" "August" "September" "October" "November" "December"
                   | default "current" }}
-'''.strip()
+'
+specific_month=$(echo "$specific_month" | xargs)
 
-specific_day = '''
+specific_day='
 {{ .specificDay | type "select"
                 | description "Day of month (optional - use with month selection)"
                 | options "current" "1" "2" "3" "4" "5" "6" "7" "8" "9" "10"
                           "11" "12" "13" "14" "15" "16" "17" "18" "19" "20"
                           "21" "22" "23" "24" "25" "26" "27" "28" "29" "30" "31"
                 | default "current" }}
-'''.strip()
+'
+specific_day=$(echo "$specific_day" | xargs)
 
 # ────────────────────────────────────────────────────────
 
-# Allow an environment variable to override the UI-chosen log group
-env_log_group = os.getenv("LOG_GROUP_NAME")
-if env_log_group:
-    log_group_name = env_log_group
+# Allow environment variable override for log group
+if [ -n "$LOG_GROUP_NAME" ]; then
+    log_group_name="$LOG_GROUP_NAME"
+fi
 
-# ────────── optional colours (falls back gracefully) ──────────
-try:
-    from colorama import Fore, Style, init as _init_colour
-    _init_colour()
-    _USE_COLOURS = True
-except ImportError:                       # keep running if colour not present
-    class _Faux:                          # dummy attrs so references still work
-        def __getattr__(self, _n): return ""
-    Fore = Style = _Faux()
-    _USE_COLOURS = False
+# ───────── Color support (optional) ─────────
+if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
+    DIM=$(tput dim)
+    BOLD=$(tput bold)
+    HEAD=$(tput setaf 6)  # cyan
+    RESET=$(tput sgr0)
+else
+    DIM=""
+    BOLD=""
+    HEAD=""
+    RESET=""
+fi
 
-_DIM   = Fore.LIGHTBLACK_EX if _USE_COLOURS else ""
-_BOLD  = Fore.WHITE          if _USE_COLOURS else ""
-_HEAD  = Fore.CYAN           if _USE_COLOURS else ""
-
-def _c(text: str, colour: str) -> str:
-    """Wrap `text` in `colour` if colour output enabled."""
-    return f"{colour}{text}{Style.RESET_ALL}" if _USE_COLOURS else text
-
-# ───────────────────────── helpers ────────────────────────────
-def window_to_seconds(win: str) -> int:
-    """Convert a window like '15m' / '3h' / '2w' → seconds."""
-    m = re.fullmatch(r"(\d+)([mhdw])", win)
-    if not m:
-        sys.exit(f"❌ Unsupported window: {win}")
-    n, unit = int(m.group(1)), m.group(2)
-    return n * {"m": 60, "h": 3600, "d": 86_400, "w": 604_800}[unit]
-
-def _extract_msg(raw: str) -> str:
-    """
-    If `raw` is JSON, show its 'log'/'message'/'msg' field;
-    otherwise return the string as-is (trimmed).
-    """
-    raw = raw.strip()
-    if raw.startswith("{") and raw.endswith("}"):
-        try:
-            payload = json.loads(raw)
-            for k in ("log", "message", "msg"):
-                if k in payload:
-                    return str(payload[k]).rstrip()
-        except json.JSONDecodeError:
-            pass
-        return shorten(raw, width=120, placeholder=" … ")
-    return raw
-
-def month_name_to_number(month_name: str) -> int:
-    """Convert month name to number (1-12)."""
-    months = {
-        "january": 1, "february": 2, "march": 3, "april": 4,
-        "may": 5, "june": 6, "july": 7, "august": 8,
-        "september": 9, "october": 10, "november": 11, "december": 12
-    }
-    return months.get(month_name.lower(), 0)
-
-# ─────────────────────────  main  ─────────────────────────────
-def main() -> None:
-    now = dt.datetime.now(timezone.utc)
-    window_seconds = window_to_seconds(relative_window)
+# ───────── Helper functions ─────────
+window_to_seconds() {
+    local win=$1
+    local num=$(echo "$win" | sed 's/[^0-9]//g')
+    local unit=$(echo "$win" | sed 's/[0-9]//g')
     
-    # Determine if we're using specific date or relative mode
-    use_specific_date = (specific_month != "current" or 
-                        specific_day != "current")
+    case $unit in
+        m) echo $((num * 60)) ;;
+        h) echo $((num * 3600)) ;;
+        d) echo $((num * 86400)) ;;
+        w) echo $((num * 604800)) ;;
+        *) echo "❌ Unsupported window: $win" >&2; exit 1 ;;
+    esac
+}
+
+month_to_number() {
+    case $(echo "$1" | tr '[:upper:]' '[:lower:]') in
+        january)   echo 1 ;;
+        february)  echo 2 ;;
+        march)     echo 3 ;;
+        april)     echo 4 ;;
+        may)       echo 5 ;;
+        june)      echo 6 ;;
+        july)      echo 7 ;;
+        august)    echo 8 ;;
+        september) echo 9 ;;
+        october)   echo 10 ;;
+        november)  echo 11 ;;
+        december)  echo 12 ;;
+        *)         echo 0 ;;
+    esac
+}
+
+extract_message() {
+    local raw="$1"
+    # Try to extract log/message/msg field from JSON
+    if [[ "$raw" =~ ^\{.*\}$ ]]; then
+        # Try to extract common log fields
+        local extracted
+        for field in log message msg; do
+            extracted=$(echo "$raw" | jq -r ".$field // empty" 2>/dev/null)
+            if [ -n "$extracted" ]; then
+                echo "$extracted"
+                return
+            fi
+        done
+        # If no field found, truncate the raw JSON
+        echo "$raw" | cut -c1-120
+    else
+        echo "$raw"
+    fi
+}
+
+# ─────────── Main logic ─────────
+main() {
+    # Calculate time window
+    local now_ms=$(($(date +%s) * 1000))
+    local window_seconds=$(window_to_seconds "$relative_window")
+    local window_desc end_ms start_ms
     
-    if use_specific_date:
-        # Build the specific date
-        year = now.year
-        month = month_name_to_number(specific_month) if specific_month != "current" else now.month
-        day = int(specific_day) if specific_day != "current" else now.day
+    # Determine if using specific date
+    if [ "$specific_month" != "current" ] || [ "$specific_day" != "current" ]; then
+        # Specific date mode
+        local year=$(date +%Y)
+        local month day
         
-        try:
-            # Create the end datetime at the end of the specified day (23:59:59)
-            end_date = dt.datetime(year, month, day, 23, 59, 59, 999999, tzinfo=timezone.utc)
-            # Ensure we don't query future dates
-            if end_date > now:
-                end_date = now
-            end_ms = int(end_date.timestamp() * 1000)
-            
-            # Start time is the window duration before the end of that day
-            start_ms = end_ms - (window_seconds * 1000)
-            
-            window_desc = f"{relative_window} window on {end_date.strftime('%Y-%m-%d')}"
-        except ValueError as e:
-            sys.exit(f"❌ Invalid date: {e}")
-    else:
-        # Original relative mode - window ending at current time
-        end_ms = int(now.timestamp() * 1000)
-        start_ms = end_ms - (window_seconds * 1000)
-        window_desc = f"last {relative_window}"
-
-    client = boto3.client("logs")
-    params = dict(
-        logGroupName = log_group_name,
-        startTime    = start_ms,
-        endTime      = end_ms,
-    )
-
-    print(
-        f"⏱️  Window : {window_desc}  "
-        f"({dt.datetime.utcfromtimestamp(start_ms/1000):%Y-%m-%d %H:%M:%S}Z → "
-        f"{dt.datetime.utcfromtimestamp(end_ms/1000):%Y-%m-%d %H:%M:%S}Z)\n"
-        f"📒 Group  : {log_group_name}\n"
-        "🔍 Pattern: (none)\n"
-    )
-
-    events, token = [], None
-    while True:
-        resp   = client.filter_log_events(**params, nextToken=token) if token else client.filter_log_events(**params)
-        events.extend(resp.get("events", []))
-        token  = resp.get("nextToken")
-        if not token:
+        if [ "$specific_month" != "current" ]; then
+            month=$(month_to_number "$specific_month")
+        else
+            month=$(date +%-m)
+        fi
+        
+        if [ "$specific_day" != "current" ]; then
+            day=$specific_day
+        else
+            day=$(date +%-d)
+        fi
+        
+        # Create end date timestamp (end of day)
+        local end_date="$year-$(printf %02d $month)-$(printf %02d $day) 23:59:59"
+        end_ms=$(date -d "$end_date" +%s000 2>/dev/null || date -j -f "%Y-%m-%d %H:%M:%S" "$end_date" +%s000 2>/dev/null)
+        
+        # Cap at current time if future
+        if [ $end_ms -gt $now_ms ]; then
+            end_ms=$now_ms
+        fi
+        
+        window_desc="$relative_window window on $(date -d @$((end_ms/1000)) +%Y-%m-%d 2>/dev/null || date -r $((end_ms/1000)) +%Y-%m-%d)"
+    else
+        # Relative mode
+        end_ms=$now_ms
+        window_desc="last $relative_window"
+    fi
+    
+    start_ms=$((end_ms - (window_seconds * 1000)))
+    
+    # Display header
+    echo "⏱️  Window : $window_desc  ($(date -u -d @$((start_ms/1000)) '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -r $((start_ms/1000)) '+%Y-%m-%d %H:%M:%S')Z → $(date -u -d @$((end_ms/1000)) '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -r $((end_ms/1000)) '+%Y-%m-%d %H:%M:%S')Z)"
+    echo "📒 Group  : $log_group_name"
+    echo "🔍 Pattern: (none)"
+    echo
+    
+    # Fetch events
+    local events_file=$(mktemp)
+    local next_token=""
+    local total_events=0
+    
+    while true; do
+        local cmd="aws logs filter-log-events --log-group-name '$log_group_name' --start-time $start_ms --end-time $end_ms"
+        
+        if [ -n "$next_token" ]; then
+            cmd="$cmd --next-token '$next_token'"
+        fi
+        
+        local response=$(eval $cmd 2>/dev/null)
+        
+        if [ $? -ne 0 ]; then
+            echo "❌ Error fetching logs. Check your AWS credentials and log group name."
+            rm -f "$events_file"
+            exit 1
+        fi
+        
+        # Extract events and append to file
+        echo "$response" | jq -r '.events[] | @json' >> "$events_file"
+        
+        # Count events
+        local batch_count=$(echo "$response" | jq -r '.events | length')
+        total_events=$((total_events + batch_count))
+        
+        # Get next token
+        next_token=$(echo "$response" | jq -r '.nextToken // empty')
+        
+        if [ -z "$next_token" ]; then
             break
+        fi
+    done
+    
+    echo "✅ $total_events event(s) retrieved"
+    echo
+    
+    # Display table header
+    printf "${HEAD}%-24s %-24s Message${RESET}\n" "Event time" "Ingestion"
+    
+    # Process and display events
+    while IFS= read -r event_json; do
+        local event=$(echo "$event_json" | jq -r '.')
+        
+        # Extract timestamps
+        local timestamp=$(echo "$event" | jq -r '.timestamp')
+        local ingestion_time=$(echo "$event" | jq -r '.ingestionTime // empty')
+        local message=$(echo "$event" | jq -r '.message')
+        
+        # Format timestamps
+        local event_time=$(date -u -d @$((timestamp/1000)) '+%Y-%m-%dT%H:%M:%S.%3NZ' 2>/dev/null || date -u -r $((timestamp/1000)) '+%Y-%m-%dT%H:%M:%S.000Z')
+        local ing_time=""
+        if [ -n "$ingestion_time" ]; then
+            ing_time=$(date -u -d @$((ingestion_time/1000)) '+%Y-%m-%dT%H:%M:%S.%3NZ' 2>/dev/null || date -u -r $((ingestion_time/1000)) '+%Y-%m-%dT%H:%M:%S.000Z')
+        fi
+        
+        # Extract message content
+        local display_msg=$(extract_message "$message")
+        
+        # Display row
+        printf "${DIM}%-24s %-24s${RESET} ${BOLD}%s${RESET}\n" "$event_time" "$ing_time" "$display_msg"
+        
+    done < "$events_file"
+    
+    # Cleanup
+    rm -f "$events_file"
+}
 
-    print(f"✅ {len(events)} event(s) retrieved\n")
-
-    # — AWS-console-style table header —
-    print(_c(f"{'Event time':<24} {'Ingestion':<24} Message", _HEAD))
-
-    for ev in events:
-        ts_event = dt.datetime.fromtimestamp(ev["timestamp"]      / 1000, tz=timezone.utc)
-        ts_ing   = dt.datetime.fromtimestamp(ev["ingestionTime"]  / 1000, tz=timezone.utc) \
-                   if "ingestionTime" in ev else None
-
-        col_event = ts_event.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        col_ing   = ts_ing.isoformat(timespec="milliseconds").replace("+00:00", "Z") if ts_ing else ""
-
-        print(
-            f"{_c(f'{col_event:<24}', _DIM)} "
-            f"{_c(f'{col_ing:<24}',   _DIM)} "
-            f"{_c(_extract_msg(ev['message']), _BOLD)}"
-        )
-
-if __name__ == "__main__":
-    main()
+# ─────────── Entry point ─────────
+main
