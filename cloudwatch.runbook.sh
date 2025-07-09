@@ -2,12 +2,25 @@
 
 set -euo pipefail
 
-# {{ .logGroupName | type "select" | description "Choose CloudWatch log group" | options "/aws/containerinsights/hoop-prod/application" "/aws/containerinsights/hoop-prod/dataplane" "/aws/eks/hoop-prod/cluster" "/aws/lambda/logdna_cloudwatch" "/aws/rds/instance/hoopdb/postgresql" | asenv "LOG_GROUP_NAME" }}
 # {{ .relativeWindow | type "select" | description "Time window duration" | options "5m" "10m" "15m" "30m" "45m" "1h" "2h" "3h" "6h" "8h" "12h" "1d" "2d" "3d" "4d" "5d" "6d" "1w" "2w" "3w" "4w" | default "5m" | asenv "RELATIVE_WINDOW" }}
 # {{ .specificMonth | type "select" | description "Month (optional - leave as 'current' for relative mode)" | options "current" "January" "February" "March" "April" "May" "June" "July" "August" "September" "October" "November" "December" | default "current" | asenv "SPECIFIC_MONTH" }}
 # {{ .specificDay | type "select" | description "Day of month (optional - use with month selection)" | options "current" "1" "2" "3" "4" "5" "6" "7" "8" "9" "10" "11" "12" "13" "14" "15" "16" "17" "18" "19" "20" "21" "22" "23" "24" "25" "26" "27" "28" "29" "30" "31" | default "current" | asenv "SPECIFIC_DAY" }}
 
-LOG_GROUP_NAME="${LOG_GROUP_NAME:-/aws/containerinsights/hoop-prod/application}"
+# Check if LOG_GROUP_NAME is set
+if [[ -z "${LOG_GROUP_NAME:-}" ]]; then
+    echo "ERROR: LOG_GROUP_NAME environment variable is not set!"
+    echo
+    echo "Please select a log group in the left pane to set the LOG_GROUP_NAME environment variable."
+    echo
+    echo "Available log groups:"
+    echo "  - /aws/containerinsights/hoop-prod/application"
+    echo "  - /aws/containerinsights/hoop-prod/dataplane"
+    echo "  - /aws/eks/hoop-prod/cluster"
+    echo "  - /aws/lambda/logdna_cloudwatch"
+    echo "  - /aws/rds/instance/hoopdb/postgresql"
+    exit 1
+fi
+
 RELATIVE_WINDOW="${RELATIVE_WINDOW:-5m}"
 SPECIFIC_MONTH="${SPECIFIC_MONTH:-current}"
 SPECIFIC_DAY="${SPECIFIC_DAY:-current}"
