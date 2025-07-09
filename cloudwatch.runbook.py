@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-CloudWatch Logs – Relative Window Fetcher (optional day/month end)
+CloudWatch Logs – Relative Window Fetcher
 Author  : Andrios @ hoopdev
-Purpose : Pull events from a log group for a preset relative window,
-          with option to set a custom window end date (by day/month).
+Purpose : Pull events from a log group for a preset relative window
+          (5 m … 4 w), matching the AWS-console buttons – and print them
+          in a console-like, columnar format.
 Requires: boto3, AWS creds with logs:FilterLogEvents
 Optional : colorama  (for faint/bright colourisation)
 """
@@ -18,8 +19,7 @@ import json
 from textwrap import shorten
 from datetime import timezone
 
-# ───────── UI parameters ─────────
-
+# ───────── UI parameters (no free-text numbers) ─────────
 log_group_name = '''
 {{ .logGroupName | type "select"
                  | description "Choose CloudWatch log group"
@@ -32,7 +32,7 @@ log_group_name = '''
 
 relative_window = '''
 {{ .relativeWindow | type "select"
-                  | description "Time window (relative to end date or now)"
+                  | description "Time window duration"
                   | options "5m" "10m" "15m" "30m" "45m"
                             "1h" "2h" "3h" "6h" "8h" "12h"
                             "1d" "2d" "3d" "4d" "5d" "6d"
@@ -40,18 +40,29 @@ relative_window = '''
                   | default "5m" }}
 '''.strip()
 
-# ── New: Optional day/month for custom window ending ──
-
-end_day = '''
-{{ .endDay | type "number"
-           | description "End day (1-31, optional; leave blank for now)"
-           | min 1 | max 31 }}
+# Optional specific date filters
+specific_month = '''
+{{ .specificMonth | type "select"
+                  | description "Month (optional - leave as 'current' for relative mode)"
+                  | options "current" "January" "February" "March" "April" "May" "June"
+                            "July" "August" "September" "October" "November" "December"
+                  | default "current" }}
 '''.strip()
 
-end_month = '''
-{{ .endMonth | type "number"
-             | description "End month (1-12, optional; leave blank for now)"
-             | min 1 | max 12 }}
+specific_day = '''
+{{ .specificDay | type "select"
+                | description "Day of month (optional - use with month selection)"
+                | options "current" "1" "2" "3" "4" "5" "6" "7" "8" "9" "10"
+                          "11" "12" "13" "14" "15" "16" "17" "18" "19" "20"
+                          "21" "22" "23" "24" "25" "26" "27" "28" "29" "30" "31"
+                | default "current" }}
+'''.strip()
+
+specific_year = '''
+{{ .specificYear | type "select"
+                 | description "Year (optional - for historical queries)"
+                 | options "current" "2025" "2024" "2023" "2022" "2021"
+                 | default "current" }}
 '''.strip()
 
 # ────────────────────────────────────────────────────────
@@ -66,8 +77,8 @@ try:
     from colorama import Fore, Style, init as _init_colour
     _init_colour()
     _USE_COLOURS = True
-except ImportError:
-    class _Faux:
+except ImportError:                       # keep running if colour not present
+    class _Faux:                          # dummy attrs so references still work
         def __getattr__(self, _n): return ""
     Fore = Style = _Faux()
     _USE_COLOURS = False
@@ -77,10 +88,12 @@ _BOLD  = Fore.WHITE          if _USE_COLOURS else ""
 _HEAD  = Fore.CYAN           if _USE_COLOURS else ""
 
 def _c(text: str, colour: str) -> str:
+    """Wrap `text` in `colour` if colour output enabled."""
     return f"{colour}{text}{Style.RESET_ALL}" if _USE_COLOURS else text
 
 # ───────────────────────── helpers ────────────────────────────
 def window_to_seconds(win: str) -> int:
+    """Convert a window like '15m' / '3h' / '2w' → seconds."""
     m = re.fullmatch(r"(\d+)([mhdw])", win)
     if not m:
         sys.exit(f"❌ Unsupported window: {win}")
@@ -88,6 +101,10 @@ def window_to_seconds(win: str) -> int:
     return n * {"m": 60, "h": 3600, "d": 86_400, "w": 604_800}[unit]
 
 def _extract_msg(raw: str) -> str:
+    """
+    If `raw` is JSON, show its 'log'/'message'/'msg' field;
+    otherwise return the string as-is (trimmed).
+    """
     raw = raw.strip()
     if raw.startswith("{") and raw.endswith("}"):
         try:
@@ -100,38 +117,50 @@ def _extract_msg(raw: str) -> str:
         return shorten(raw, width=120, placeholder=" … ")
     return raw
 
-def parse_optional_int(val):
-    try:
-        return int(val)
-    except (ValueError, TypeError):
-        return None
+def month_name_to_number(month_name: str) -> int:
+    """Convert month name to number (1-12)."""
+    months = {
+        "january": 1, "february": 2, "march": 3, "april": 4,
+        "may": 5, "june": 6, "july": 7, "august": 8,
+        "september": 9, "october": 10, "november": 11, "december": 12
+    }
+    return months.get(month_name.lower(), 0)
 
 # ─────────────────────────  main  ─────────────────────────────
 def main() -> None:
-    # Read day/month from env or UI, handling blank input as None
-    _end_day   = os.getenv("END_DAY", end_day)
-    _end_month = os.getenv("END_MONTH", end_month)
-
-    end_day   = parse_optional_int(_end_day)
-    end_month = parse_optional_int(_end_month)
-
-    now = dt.datetime.utcnow().replace(tzinfo=timezone.utc)
-    current_year = now.year
-
-    # ── New logic: if day/month are given, use as window end, else use now ──
-    if end_day and end_month:
+    now = dt.datetime.now(timezone.utc)
+    window_seconds = window_to_seconds(relative_window)
+    
+    # Determine if we're using specific date or relative mode
+    use_specific_date = (specific_month != "current" or 
+                        specific_day != "current" or 
+                        specific_year != "current")
+    
+    if use_specific_date:
+        # Build the specific date
+        year = int(specific_year) if specific_year != "current" else now.year
+        month = month_name_to_number(specific_month) if specific_month != "current" else now.month
+        day = int(specific_day) if specific_day != "current" else now.day
+        
         try:
-            end_time = dt.datetime(current_year, end_month, end_day, tzinfo=dt.timezone.utc)
+            # Create the end datetime at the end of the specified day (23:59:59)
+            end_date = dt.datetime(year, month, day, 23, 59, 59, 999999, tzinfo=timezone.utc)
+            # Ensure we don't query future dates
+            if end_date > now:
+                end_date = now
+            end_ms = int(end_date.timestamp() * 1000)
+            
+            # Start time is the window duration before the end of that day
+            start_ms = end_ms - (window_seconds * 1000)
+            
+            window_desc = f"{relative_window} window on {end_date.strftime('%Y-%m-%d')}"
         except ValueError as e:
             sys.exit(f"❌ Invalid date: {e}")
-        custom_end = True
     else:
-        end_time = now
-        custom_end = False
-
-    start_time = end_time - dt.timedelta(seconds=window_to_seconds(relative_window))
-    end_ms   = int(end_time.timestamp() * 1000)
-    start_ms = int(start_time.timestamp() * 1000)
+        # Original relative mode - window ending at current time
+        end_ms = int(now.timestamp() * 1000)
+        start_ms = end_ms - (window_seconds * 1000)
+        window_desc = f"last {relative_window}"
 
     client = boto3.client("logs")
     params = dict(
@@ -140,21 +169,13 @@ def main() -> None:
         endTime      = end_ms,
     )
 
-    # ── Updated summary print ──
-    if custom_end:
-        end_str = end_time.strftime("%Y-%m-%d")
-        print(
-            f"⏱️  Window : last {relative_window} ending at {end_str} (custom date)\n"
-            f"📒 Group  : {log_group_name}\n"
-            "🔍 Pattern: (none)\n"
-        )
-    else:
-        print(
-            f"⏱️  Window : last {relative_window} ending now "
-            f"({end_time:%Y-%m-%d %H:%M:%S}Z)\n"
-            f"📒 Group  : {log_group_name}\n"
-            "🔍 Pattern: (none)\n"
-        )
+    print(
+        f"⏱️  Window : {window_desc}  "
+        f"({dt.datetime.utcfromtimestamp(start_ms/1000):%Y-%m-%d %H:%M:%S}Z → "
+        f"{dt.datetime.utcfromtimestamp(end_ms/1000):%Y-%m-%d %H:%M:%S}Z)\n"
+        f"📒 Group  : {log_group_name}\n"
+        "🔍 Pattern: (none)\n"
+    )
 
     events, token = [], None
     while True:
@@ -165,11 +186,13 @@ def main() -> None:
             break
 
     print(f"✅ {len(events)} event(s) retrieved\n")
+
+    # — AWS-console-style table header —
     print(_c(f"{'Event time':<24} {'Ingestion':<24} Message", _HEAD))
 
     for ev in events:
-        ts_event = dt.datetime.fromtimestamp(ev["timestamp"] / 1000, tz=timezone.utc)
-        ts_ing   = dt.datetime.fromtimestamp(ev["ingestionTime"] / 1000, tz=timezone.utc) \
+        ts_event = dt.datetime.fromtimestamp(ev["timestamp"]      / 1000, tz=timezone.utc)
+        ts_ing   = dt.datetime.fromtimestamp(ev["ingestionTime"]  / 1000, tz=timezone.utc) \
                    if "ingestionTime" in ev else None
 
         col_event = ts_event.isoformat(timespec="milliseconds").replace("+00:00", "Z")
