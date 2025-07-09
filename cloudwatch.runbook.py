@@ -6,12 +6,35 @@
 # Requires: aws-cli, jq
 
 # ───────── UI parameters (no free-text numbers) ─────────
-# Read log group from environment variable
-log_group_name="${LOG_GROUP_NAME}"
+# Read log group from environment variable or use a default
+log_group_name="${LOG_GROUP_NAME:-}"
 
+# If not set via environment, check if it's provided as first argument
+if [ -z "$log_group_name" ] && [ $# -ge 1 ]; then
+    log_group_name="$1"
+fi
+
+# If still not set, try the UI parameter approach
 if [ -z "$log_group_name" ]; then
-    echo "❌ Error: LOG_GROUP_NAME environment variable is not set"
-    echo "Usage: LOG_GROUP_NAME='/aws/containerinsights/hoop-prod/application' $0"
+    log_group_name='
+{{ .logGroupName | type "select"
+                 | description "Choose CloudWatch log group"
+                 | options "/aws/containerinsights/hoop-prod/application"
+                           "/aws/containerinsights/hoop-prod/dataplane"
+                           "/aws/eks/hoop-prod/cluster"
+                           "/aws/lambda/logdna_cloudwatch"
+                           "/aws/rds/instance/hoopdb/postgresql" }}
+'
+    log_group_name=$(echo "$log_group_name" | xargs)
+fi
+
+# Final check - if still empty, error out
+if [ -z "$log_group_name" ]; then
+    echo "❌ Error: Log group name not provided"
+    echo "Usage: "
+    echo "  LOG_GROUP_NAME='/aws/containerinsights/hoop-prod/application' $0"
+    echo "  OR"
+    echo "  $0 '/aws/containerinsights/hoop-prod/application'"
     exit 1
 fi
 
@@ -46,11 +69,6 @@ specific_day='
 specific_day=$(echo "$specific_day" | xargs)
 
 # ────────────────────────────────────────────────────────
-
-# Allow environment variable override for log group
-if [ -n "$LOG_GROUP_NAME" ]; then
-    log_group_name="$LOG_GROUP_NAME"
-fi
 
 # ───────── Color support (optional) ─────────
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
