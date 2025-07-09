@@ -58,13 +58,6 @@ specific_day = '''
                 | default "current" }}
 '''.strip()
 
-specific_year = '''
-{{ .specificYear | type "select"
-                 | description "Year (optional - for historical queries)"
-                 | options "current" "2025" "2024" "2023" "2022" "2021"
-                 | default "current" }}
-'''.strip()
-
 # ────────────────────────────────────────────────────────
 
 # Allow an environment variable to override the UI-chosen log group
@@ -133,12 +126,11 @@ def main() -> None:
     
     # Determine if we're using specific date or relative mode
     use_specific_date = (specific_month != "current" or 
-                        specific_day != "current" or 
-                        specific_year != "current")
+                        specific_day != "current")
     
     if use_specific_date:
         # Build the specific date
-        year = int(specific_year) if specific_year != "current" else now.year
+        year = now.year
         month = month_name_to_number(specific_month) if specific_month != "current" else now.month
         day = int(specific_day) if specific_day != "current" else now.day
         
