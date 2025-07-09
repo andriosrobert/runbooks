@@ -6,9 +6,6 @@ set -euo pipefail
 # {{ .specificMonth | type "select" | description "Month (optional - leave as 'current' for relative mode)" | options "current" "January" "February" "March" "April" "May" "June" "July" "August" "September" "October" "November" "December" | default "current" | asenv "SPECIFIC_MONTH" }}
 # {{ .specificDay | type "select" | description "Day of month (optional - use with month selection)" | options "current" "1" "2" "3" "4" "5" "6" "7" "8" "9" "10" "11" "12" "13" "14" "15" "16" "17" "18" "19" "20" "21" "22" "23" "24" "25" "26" "27" "28" "29" "30" "31" | default "current" | asenv "SPECIFIC_DAY" }}
 
-# Read LOG_GROUP_NAME from environment
-LOG_GROUP_NAME="${LOG_GROUP_NAME:-}"
-
 # Check if LOG_GROUP_NAME is empty
 if [[ -z "$LOG_GROUP_NAME" ]]; then
     echo "ERROR: LOG_GROUP_NAME environment variable is not set or is empty!"
